@@ -1,0 +1,258 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Multi-Tenant: Each pharmacy is a tenant ───
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  license   String?
+  currency  String   @default("USD")
+  locale    String   @default("en")
+  plan      Plan     @default(BASIC)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users      User[]
+  medicines  Medicine[]
+  batches    Batch[]
+  sales      Sale[]
+  purchases  Purchase[]
+  suppliers  Supplier[]
+  customers  Customer[]
+  categories Category[]
+
+  @@index([plan])
+}
+
+enum Plan {
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+// ─── Users & Auth ───
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  name         String
+  email        String
+  password     String
+  role         Role     @default(PHARMACIST)
+  phone        String?
+  active       Boolean  @default(true)
+  refreshToken String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sales  Sale[]
+
+  @@unique([email, tenantId])
+  @@index([tenantId])
+  @@index([email])
+}
+
+enum Role {
+  ADMIN
+  PHARMACIST
+  CASHIER
+}
+
+// ─── Medicine Catalog ───
+model Category {
+  id       String @id @default(cuid())
+  tenantId String
+  name     String
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  medicines Medicine[]
+
+  @@unique([name, tenantId])
+  @@index([tenantId])
+}
+
+model Medicine {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  genericName String?
+  categoryId  String?
+  barcode     String?
+  supplierId  String?
+  unit        String   @default("pcs")
+  minStock    Int      @default(10)
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  batches  Batch[]
+
+  @@index([tenantId])
+  @@index([tenantId, name])
+  @@index([tenantId, categoryId])
+  @@index([barcode])
+}
+
+model Batch {
+  id         String    @id @default(cuid())
+  tenantId   String
+  medicineId String
+  batchNo    String
+  quantity   Int
+  costPrice  Float
+  sellPrice  Float
+  expiryDate DateTime
+  receivedAt DateTime  @default(now())
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  medicine Medicine @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  saleItems     SaleItem[]
+  purchaseItems PurchaseItem[]
+
+  @@index([tenantId])
+  @@index([medicineId])
+  @@index([tenantId, expiryDate])
+  @@index([tenantId, quantity])
+}
+
+// ─── Customers ───
+model Customer {
+  id       String  @id @default(cuid())
+  tenantId String
+  name     String
+  phone    String?
+  email    String?
+  address  String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sales  Sale[]
+
+  @@index([tenantId])
+  @@index([tenantId, phone])
+}
+
+// ─── Sales / POS ───
+model Sale {
+  id            String        @id @default(cuid())
+  tenantId      String
+  userId        String
+  customerId    String?
+  invoiceNo     String
+  subtotal      Float
+  discount      Float         @default(0)
+  tax           Float         @default(0)
+  total         Float
+  paymentMethod PaymentMethod @default(CASH)
+  status        SaleStatus    @default(COMPLETED)
+  createdAt     DateTime      @default(now())
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items    SaleItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([invoiceNo])
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  MOBILE
+}
+
+enum SaleStatus {
+  COMPLETED
+  REFUNDED
+}
+
+model SaleItem {
+  id       String @id @default(cuid())
+  saleId   String
+  batchId  String
+  name     String
+  quantity Int
+  price    Float
+  total    Float
+
+  sale  Sale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  batch Batch @relation(fields: [batchId], references: [id])
+
+  @@index([saleId])
+}
+
+// ─── Purchases ───
+model Purchase {
+  id         String         @id @default(cuid())
+  tenantId   String
+  supplierId String
+  invoiceNo  String
+  total      Float
+  status     PurchaseStatus @default(PENDING)
+  notes      String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier Supplier       @relation(fields: [supplierId], references: [id])
+  items    PurchaseItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+}
+
+enum PurchaseStatus {
+  PENDING
+  RECEIVED
+  CANCELLED
+}
+
+model PurchaseItem {
+  id         String @id @default(cuid())
+  purchaseId String
+  batchId    String?
+  name       String
+  quantity   Int
+  costPrice  Float
+  total      Float
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  batch    Batch?   @relation(fields: [batchId], references: [id])
+
+  @@index([purchaseId])
+}
+
+// ─── Suppliers ───
+model Supplier {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  company   String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  medicines Medicine[]
+  purchases Purchase[]
+
+  @@index([tenantId])
+}
