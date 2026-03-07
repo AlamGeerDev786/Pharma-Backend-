@@ -1,8 +1,10 @@
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import prisma from '../config/database.js';
 import { env } from '../config/env.js';
+import { sendEmail, passwordResetEmail } from '../utils/email.js';
 
 const registerSchema = z.object({
   pharmacyName: z.string().min(2),
@@ -161,6 +163,75 @@ export async function getMe(req, res, next) {
       select: { id: true, name: true, plan: true, currency: true, phone: true, email: true, address: true, license: true },
     });
     res.json({ user, tenant });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function forgotPassword(req, res, next) {
+  try {
+    const { email } = z.object({ email: z.string().email() }).parse(req.body);
+
+    const user = await prisma.user.findFirst({ where: { email, active: true } });
+
+    // Always return success to prevent email enumeration
+    if (!user) {
+      return res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { resetToken, resetTokenExpiry },
+    });
+
+    const resetUrl = `${env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+    const { subject, html } = passwordResetEmail(resetUrl, user.name);
+
+    // Send email in background — don't block the response
+    sendEmail({ to: user.email, subject, html }).catch((err) => {
+      console.error('Failed to send reset email:', err.message);
+    });
+
+    res.json({ message: 'If an account with that email exists, a reset link has been sent.' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function resetPassword(req, res, next) {
+  try {
+    const { token, password } = z.object({
+      token: z.string().min(1),
+      password: z.string().min(6),
+    }).parse(req.body);
+
+    const user = await prisma.user.findFirst({
+      where: {
+        resetToken: token,
+        resetTokenExpiry: { gt: new Date() },
+        active: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        resetToken: null,
+        resetTokenExpiry: null,
+      },
+    });
+
+    res.json({ message: 'Password has been reset successfully. You can now log in.' });
   } catch (err) {
     next(err);
   }
