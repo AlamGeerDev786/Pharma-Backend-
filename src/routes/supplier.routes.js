@@ -8,8 +8,8 @@ router.use(authenticate);
 
 router.get('/', getSuppliers);
 router.get('/:id', getSupplier);
-router.post('/', authorize('ADMIN', 'PHARMACIST'), createSupplier);
-router.put('/:id', authorize('ADMIN', 'PHARMACIST'), updateSupplier);
-router.delete('/:id', authorize('ADMIN'), deleteSupplier);
+router.post('/', authorize('ORG_ADMIN', 'ADMIN', 'PHARMACIST'), createSupplier);
+router.put('/:id', authorize('ORG_ADMIN', 'ADMIN', 'PHARMACIST'), updateSupplier);
+router.delete('/:id', authorize('ORG_ADMIN', 'ADMIN'), deleteSupplier);
 
 export default router;

@@ -11,10 +11,10 @@ router.use(authenticate);
 
 router.get('/', getMedicines);
 router.get('/:id', getMedicine);
-router.post('/', authorize('ADMIN', 'PHARMACIST'), createMedicine);
-router.put('/:id', authorize('ADMIN', 'PHARMACIST'), updateMedicine);
-router.delete('/:id', authorize('ADMIN'), deleteMedicine);
-router.post('/:id/batches', authorize('ADMIN', 'PHARMACIST'), addBatch);
+router.post('/', authorize('ORG_ADMIN', 'ADMIN', 'PHARMACIST'), createMedicine);
+router.put('/:id', authorize('ORG_ADMIN', 'ADMIN', 'PHARMACIST'), updateMedicine);
+router.delete('/:id', authorize('ORG_ADMIN', 'ADMIN'), deleteMedicine);
+router.post('/:id/batches', authorize('ORG_ADMIN', 'ADMIN', 'PHARMACIST'), addBatch);
 
 export default router;
 
@@ -22,4 +22,4 @@ export default router;
 export const categoryRouter = Router();
 categoryRouter.use(authenticate);
 categoryRouter.get('/', getCategories);
-categoryRouter.post('/', authorize('ADMIN', 'PHARMACIST'), createCategory);
+categoryRouter.post('/', authorize('ORG_ADMIN', 'ADMIN', 'PHARMACIST'), createCategory);

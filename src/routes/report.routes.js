@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, branchContext } from '../middleware/auth.js';
 import { salesSummary, topSelling, inventoryHealth, expiryReport, profitReport } from '../controllers/report.controller.js';
 
 const router = Router();
 
 router.use(authenticate);
+router.use(branchContext);
 
 router.get('/sales-summary', salesSummary);
 router.get('/top-selling', topSelling);

@@ -7,19 +7,40 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── Multi-Tenant: Each pharmacy is a tenant ───
-model Tenant {
+// ─── Organization: Parent entity for multi-branch pharmacies ───
+model Organization {
   id        String   @id @default(cuid())
   name      String
   phone     String?
   email     String?
   address   String?
-  license   String?
   currency  String   @default("USD")
   locale    String   @default("en")
   plan      Plan     @default(BASIC)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  branches       Tenant[]
+  stockTransfers StockTransfer[]
+
+  @@index([plan])
+}
+
+// ─── Tenant (Branch): Each branch is a tenant ───
+model Tenant {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  phone          String?
+  email          String?
+  address        String?
+  license        String?
+  isMain         Boolean  @default(false)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   users      User[]
   medicines  Medicine[]
@@ -30,7 +51,10 @@ model Tenant {
   customers  Customer[]
   categories Category[]
 
-  @@index([plan])
+  transfersOut StockTransfer[] @relation("TransferFrom")
+  transfersIn  StockTransfer[] @relation("TransferTo")
+
+  @@index([organizationId])
 }
 
 enum Plan {
@@ -41,19 +65,19 @@ enum Plan {
 
 // ─── Users & Auth ───
 model User {
-  id           String   @id @default(cuid())
-  tenantId     String
-  name         String
-  email        String
-  password     String
-  role         Role     @default(PHARMACIST)
-  phone        String?
-  active       Boolean  @default(true)
+  id               String    @id @default(cuid())
+  tenantId         String
+  name             String
+  email            String
+  password         String
+  role             Role      @default(PHARMACIST)
+  phone            String?
+  active           Boolean   @default(true)
   refreshToken     String?
   resetToken       String?
   resetTokenExpiry DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   sales  Sale[]
@@ -64,6 +88,7 @@ model User {
 }
 
 enum Role {
+  ORG_ADMIN
   ADMIN
   PHARMACIST
   CASHIER
@@ -257,4 +282,49 @@ model Supplier {
   purchases Purchase[]
 
   @@index([tenantId])
+}
+
+// ─── Stock Transfers (Inter-Branch) ───
+model StockTransfer {
+  id             String              @id @default(cuid())
+  organizationId String
+  fromBranchId   String
+  toBranchId     String
+  requestedBy    String
+  approvedBy     String?
+  status         StockTransferStatus @default(PENDING)
+  notes          String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fromBranch   Tenant       @relation("TransferFrom", fields: [fromBranchId], references: [id])
+  toBranch     Tenant       @relation("TransferTo", fields: [toBranchId], references: [id])
+
+  items StockTransferItem[]
+
+  @@index([organizationId])
+  @@index([fromBranchId])
+  @@index([toBranchId])
+}
+
+enum StockTransferStatus {
+  PENDING
+  APPROVED
+  IN_TRANSIT
+  COMPLETED
+  REJECTED
+}
+
+model StockTransferItem {
+  id             String @id @default(cuid())
+  transferId     String
+  medicineName   String
+  batchNo        String
+  quantity       Int
+  costPrice      Float
+
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
 }

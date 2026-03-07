@@ -13,6 +13,7 @@ import supplierRoutes from './routes/supplier.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import reportRoutes from './routes/report.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
+import branchRoutes from './routes/branch.routes.js';
 
 const app = express();
 
@@ -38,6 +39,7 @@ app.use('/api/suppliers', supplierRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/branches', branchRoutes);
 
 // ─── Health check ───
 app.get('/api/health', (req, res) => {

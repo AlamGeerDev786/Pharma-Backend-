@@ -21,8 +21,8 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
-function generateTokens(user) {
-  const payload = { id: user.id, tenantId: user.tenantId, role: user.role };
+function generateTokens(user, organizationId) {
+  const payload = { id: user.id, tenantId: user.tenantId, organizationId, role: user.role };
   const accessToken = jwt.sign(payload, env.JWT_SECRET, { expiresIn: '24h' });
   const refreshToken = jwt.sign(payload, env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
   return { accessToken, refreshToken };
@@ -34,7 +34,8 @@ export async function register(req, res, next) {
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
     const result = await prisma.$transaction(async (tx) => {
-      const tenant = await tx.tenant.create({
+      // Create organization first
+      const organization = await tx.organization.create({
         data: {
           name: data.pharmacyName,
           phone: data.phone,
@@ -44,17 +45,30 @@ export async function register(req, res, next) {
         },
       });
 
+      // Create the main (first) branch
+      const tenant = await tx.tenant.create({
+        data: {
+          organizationId: organization.id,
+          name: data.pharmacyName + ' - Main Branch',
+          phone: data.phone,
+          email: data.email,
+          address: data.address,
+          isMain: true,
+        },
+      });
+
+      // Create ORG_ADMIN user on the main branch
       const user = await tx.user.create({
         data: {
           tenantId: tenant.id,
           name: data.ownerName,
           email: data.email,
           password: hashedPassword,
-          role: 'ADMIN',
+          role: 'ORG_ADMIN',
         },
       });
 
-      // Create default categories for new pharmacy
+      // Create default categories for the main branch
       const defaultCategories = [
         'Tablets', 'Capsules', 'Syrups', 'Injections',
         'Ointments', 'Drops', 'Inhalers', 'Supplements',
@@ -63,10 +77,10 @@ export async function register(req, res, next) {
         data: defaultCategories.map((name) => ({ tenantId: tenant.id, name })),
       });
 
-      return { tenant, user };
+      return { organization, tenant, user };
     });
 
-    const tokens = generateTokens(result.user);
+    const tokens = generateTokens(result.user, result.organization.id);
     await prisma.user.update({
       where: { id: result.user.id },
       data: { refreshToken: tokens.refreshToken },
@@ -79,10 +93,15 @@ export async function register(req, res, next) {
         email: result.user.email,
         role: result.user.role,
       },
+      organization: {
+        id: result.organization.id,
+        name: result.organization.name,
+        plan: result.organization.plan,
+      },
       tenant: {
         id: result.tenant.id,
         name: result.tenant.name,
-        plan: result.tenant.plan,
+        isMain: result.tenant.isMain,
       },
       ...tokens,
     });
@@ -97,18 +116,36 @@ export async function login(req, res, next) {
 
     const user = await prisma.user.findFirst({
       where: { email: data.email, active: true },
-      include: { tenant: { select: { id: true, name: true, plan: true, currency: true } } },
+      include: {
+        tenant: {
+          select: {
+            id: true, name: true, isMain: true, organizationId: true,
+            organization: { select: { id: true, name: true, plan: true, currency: true } },
+          },
+        },
+      },
     });
 
     if (!user || !(await bcrypt.compare(data.password, user.password))) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const tokens = generateTokens(user);
+    const orgId = user.tenant.organizationId;
+    const tokens = generateTokens(user, orgId);
     await prisma.user.update({
       where: { id: user.id },
       data: { refreshToken: tokens.refreshToken },
     });
+
+    // If ORG_ADMIN, also return all branches
+    let branches = undefined;
+    if (user.role === 'ORG_ADMIN') {
+      branches = await prisma.tenant.findMany({
+        where: { organizationId: orgId, active: true },
+        select: { id: true, name: true, isMain: true, address: true },
+        orderBy: { isMain: 'desc' },
+      });
+    }
 
     res.json({
       user: {
@@ -117,7 +154,13 @@ export async function login(req, res, next) {
         email: user.email,
         role: user.role,
       },
-      tenant: user.tenant,
+      organization: user.tenant.organization,
+      tenant: {
+        id: user.tenant.id,
+        name: user.tenant.name,
+        isMain: user.tenant.isMain,
+      },
+      branches,
       ...tokens,
     });
   } catch (err) {
@@ -133,14 +176,21 @@ export async function refreshToken(req, res, next) {
     const decoded = jwt.verify(token, env.JWT_REFRESH_SECRET);
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
-      include: { tenant: { select: { id: true, name: true, plan: true, currency: true } } },
+      include: {
+        tenant: {
+          select: {
+            id: true, name: true, organizationId: true,
+            organization: { select: { id: true, name: true, plan: true, currency: true } },
+          },
+        },
+      },
     });
 
     if (!user || user.refreshToken !== token) {
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
 
-    const tokens = generateTokens(user);
+    const tokens = generateTokens(user, user.tenant.organizationId);
     await prisma.user.update({
       where: { id: user.id },
       data: { refreshToken: tokens.refreshToken },
@@ -158,11 +208,31 @@ export async function getMe(req, res, next) {
       where: { id: req.user.id },
       select: { id: true, name: true, email: true, role: true, phone: true, createdAt: true },
     });
+
     const tenant = await prisma.tenant.findUnique({
       where: { id: req.tenantId },
-      select: { id: true, name: true, plan: true, currency: true, phone: true, email: true, address: true, license: true },
+      select: {
+        id: true, name: true, phone: true, email: true, address: true, license: true, isMain: true,
+        organizationId: true,
+      },
     });
-    res.json({ user, tenant });
+
+    const organization = await prisma.organization.findUnique({
+      where: { id: req.organizationId },
+      select: { id: true, name: true, plan: true, currency: true, phone: true, email: true, address: true },
+    });
+
+    // If ORG_ADMIN, include all branches
+    let branches = undefined;
+    if (user.role === 'ORG_ADMIN') {
+      branches = await prisma.tenant.findMany({
+        where: { organizationId: req.organizationId, active: true },
+        select: { id: true, name: true, isMain: true, address: true, phone: true },
+        orderBy: { isMain: 'desc' },
+      });
+    }
+
+    res.json({ user, tenant, organization, branches });
   } catch (err) {
     next(err);
   }

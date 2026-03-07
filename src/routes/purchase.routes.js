@@ -6,8 +6,8 @@ const router = Router();
 
 router.use(authenticate);
 
-router.post('/', authorize('ADMIN', 'PHARMACIST'), createPurchase);
-router.put('/:id/receive', authorize('ADMIN', 'PHARMACIST'), receivePurchase);
+router.post('/', authorize('ORG_ADMIN', 'ADMIN', 'PHARMACIST'), createPurchase);
+router.put('/:id/receive', authorize('ORG_ADMIN', 'ADMIN', 'PHARMACIST'), receivePurchase);
 router.get('/', getPurchases);
 router.get('/:id', getPurchase);
 

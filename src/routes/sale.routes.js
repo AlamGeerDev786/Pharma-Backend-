@@ -9,6 +9,6 @@ router.use(authenticate);
 router.post('/', createSale);
 router.get('/', getSales);
 router.get('/:id', getSale);
-router.post('/:id/refund', authorize('ADMIN'), refundSale);
+router.post('/:id/refund', authorize('ORG_ADMIN', 'ADMIN'), refundSale);
 
 export default router;

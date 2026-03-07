@@ -2,26 +2,50 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import prisma from '../config/database.js';
 
-// ─── Tenant/Pharmacy Settings ───
+// ─── Organization Settings (ORG_ADMIN) ───
 
-const updateTenantSchema = z.object({
+const updateOrgSchema = z.object({
+  name: z.string().min(2).optional(),
+  phone: z.string().optional(),
+  email: z.string().email().optional(),
+  address: z.string().optional(),
+  currency: z.string().optional(),
+  locale: z.string().optional(),
+});
+
+// PUT /api/settings/organization
+export async function updateOrganization(req, res, next) {
+  try {
+    const data = updateOrgSchema.parse(req.body);
+    const organization = await prisma.organization.update({
+      where: { id: req.organizationId },
+      data,
+      select: { id: true, name: true, phone: true, email: true, address: true, currency: true, locale: true, plan: true },
+    });
+    res.json(organization);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── Branch Settings (ADMIN / ORG_ADMIN) ───
+
+const updateBranchSchema = z.object({
   name: z.string().min(2).optional(),
   phone: z.string().optional(),
   email: z.string().email().optional(),
   address: z.string().optional(),
   license: z.string().optional(),
-  currency: z.string().optional(),
-  locale: z.string().optional(),
 });
 
 // PUT /api/settings/pharmacy
 export async function updatePharmacy(req, res, next) {
   try {
-    const data = updateTenantSchema.parse(req.body);
+    const data = updateBranchSchema.parse(req.body);
     const tenant = await prisma.tenant.update({
       where: { id: req.tenantId },
       data,
-      select: { id: true, name: true, phone: true, email: true, address: true, license: true, currency: true, locale: true, plan: true },
+      select: { id: true, name: true, phone: true, email: true, address: true, license: true, isMain: true },
     });
     res.json(tenant);
   } catch (err) {
@@ -35,13 +59,13 @@ const createUserSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(6),
-  role: z.enum(['ADMIN', 'PHARMACIST', 'CASHIER']).default('PHARMACIST'),
+  role: z.enum(['ORG_ADMIN', 'ADMIN', 'PHARMACIST', 'CASHIER']).default('PHARMACIST'),
   phone: z.string().optional(),
 });
 
 const updateUserSchema = z.object({
   name: z.string().min(2).optional(),
-  role: z.enum(['ADMIN', 'PHARMACIST', 'CASHIER']).optional(),
+  role: z.enum(['ORG_ADMIN', 'ADMIN', 'PHARMACIST', 'CASHIER']).optional(),
   phone: z.string().optional(),
   active: z.boolean().optional(),
 });
