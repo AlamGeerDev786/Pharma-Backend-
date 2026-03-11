@@ -49,8 +49,13 @@ app.get('/api/health', (req, res) => {
 // ─── Error handler (must be last) ───
 app.use(errorHandler);
 
-// ─── Start server ───
-app.listen(env.PORT, () => {
-  console.log(`Server running on http://localhost:${env.PORT}`);
-  console.log(`Environment: ${env.NODE_ENV}`);
-});
+// ─── Start server (only in non-serverless environments) ───
+if (env.NODE_ENV !== 'production') {
+  app.listen(env.PORT, () => {
+    console.log(`Server running on http://localhost:${env.PORT}`);
+    console.log(`Environment: ${env.NODE_ENV}`);
+  });
+}
+
+// ─── Export for Vercel serverless ───
+export default app;
