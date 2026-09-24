@@ -34,3 +34,5 @@ Thumbs.db
 # Prisma
 prisma/*.db
 prisma/*.db-journal
+branch_structure.json
+temp_interactive_push.bat

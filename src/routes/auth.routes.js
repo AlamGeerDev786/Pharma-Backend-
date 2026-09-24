@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { register, login, refreshToken, getMe, forgotPassword, resetPassword } from '../controllers/auth.controller.js';
 import { authenticate } from '../middleware/auth.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 const router = Router();
 
